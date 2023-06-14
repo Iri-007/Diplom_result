@@ -4,7 +4,8 @@ from vk_api import vk_api, VkApiError
 
 from engine.checker import Checker
 
-step_size = 10
+STEP_SIZE = 50
+ACTIVELY_TRYING_TO_FIND = 6
 
 
 def set_ages(params, age):
@@ -20,26 +21,26 @@ class VKinderEngine:
         self.api = vk_api.VkApi(token=access_token)
         self.checker = Checker()
 
-    def get_new_profile(self, params, users):
-        for user in users:
-            if not self.checker.exist(user['id'], params['user_id']):
-                self.checker.put_record(user['id'], params['user_id'])
-                return user
-        return None
-
     def search_user(self, params):
         offset = 0
-        while True:
+        user = None
+        while offset < 1000:
             users = self.api.method('users.search',
-                                    {'count': step_size, 'offset': offset, 'age_from': params['age_from'],
+                                    {'count': STEP_SIZE, 'offset': offset,
                                      'age_to': params['age_to'], 'sex': params['sex'],
-                                     'city': params['city'], 'status': 6, 'is_closed': False})
+                                     'city': params['city'], 'status': ACTIVELY_TRYING_TO_FIND, 'is_closed': False,
+                                     'fields': 'is_closed,can_access_closed'})
             try:
-                user = self.get_new_profile(params, users['items'])
+                available_users = [x for x in users['items'] if x['can_access_closed']]
+                while available_users:
+                    user_for_check = available_users.pop()
+                    if not self.checker.exist(user_for_check['id'], params['user_id']):
+                        user = user_for_check
+                        break
             except KeyError:
                 return None
             if user is None:
-                offset += step_size
+                offset += STEP_SIZE
             else:
                 break
         if user is not None:
@@ -88,3 +89,6 @@ class VKinderEngine:
         if cities['count'] > 0:
             return cities['items'][0]
         return None
+
+    def put_to_viewed(self, user_id, profile_id):
+        self.checker.put_record(user_id, profile_id)

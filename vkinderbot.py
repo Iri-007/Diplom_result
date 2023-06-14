@@ -27,7 +27,6 @@ class VKinderBot:
                 if command == 'привет':
                     self.params = self.bot_engine.get_params_by_profile(event.user_id)
                     self.message_send(event.user_id, f'Здравствуйте, {self.params["name"]}.')
-                    # self.params.keys().__contains__('city')
                     if 'city' not in self.params:
                         self.message_send(event.user_id, f'В Вашем профиле не указан город проживания. Введите город.')
                     elif 'age_from' not in self.params:
@@ -39,6 +38,7 @@ class VKinderBot:
                         user = self.bot_engine.search_user(self.params)
                         self.message_send(event.user_id, f'Найден: {user["about"]}, https://vk.com/id{user["id"]}',
                                           attachment=user["photos"])
+                        self.bot_engine.put_to_viewed(user["id"], self.params['user_id'])
                 elif command == 'пока':
                     self.params = None
                     self.message_send(event.user_id, 'Приятно было поработать, надеюсь, Вы ещё вернётесь.')
