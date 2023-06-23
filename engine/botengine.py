@@ -20,29 +20,23 @@ class VKinderEngine:
     def __init__(self, access_token):
         self.api = vk_api.VkApi(token=access_token)
         self.checker = Checker()
+        self.cached_users = []
+        self.offset = 0
 
     def search_user(self, params):
-        offset = 0
-        user = None
-        while offset < 1000:
-            users = self.api.method('users.search',
-                                    {'count': STEP_SIZE, 'offset': offset,
-                                     'age_to': params['age_to'], 'sex': params['sex'],
-                                     'city': params['city'], 'status': ACTIVELY_TRYING_TO_FIND, 'is_closed': False,
-                                     'fields': 'is_closed,can_access_closed'})
-            try:
-                available_users = [x for x in users['items'] if x['can_access_closed']]
-                while available_users:
-                    user_for_check = available_users.pop()
-                    if not self.checker.exist(user_for_check['id'], params['user_id']):
-                        user = user_for_check
-                        break
-            except KeyError:
-                return None
-            if user is None:
-                offset += STEP_SIZE
+        if not self.cached_users and not self.renew_cache(params):
+            return None
+        user = self.cached_users.pop()
+        while self.checker.exist(user['id'], params['user_id']):
+            if self.cached_users:
+                user = self.cached_users.pop()
             else:
-                break
+                if self.renew_cache(params):
+                    user = self.cached_users.pop()
+                else:
+                    # случай, когда кеш и после обновления пуст и не может быть заполнен в этом запуске
+                    user = None
+                    break
         if user is not None:
             user['about'] = user['first_name'] + ' ' + user['last_name']
             user['photos'] = self.get_three_best_photos(user['id'])
@@ -92,3 +86,27 @@ class VKinderEngine:
 
     def put_to_viewed(self, user_id, profile_id):
         self.checker.put_record(user_id, profile_id)
+
+    def renew_cache(self, params):
+        if self.offset > 1000:
+            # вышли за предел поиска
+            return False
+        try:
+            users = self.api.method('users.search',
+                                    {'count': STEP_SIZE, 'offset': self.offset,
+                                     'age_to': params['age_to'], 'sex': params['sex'],
+                                     'city': params['city'], 'status': ACTIVELY_TRYING_TO_FIND, 'is_closed': False,
+                                     'fields': 'is_closed,can_access_closed'})
+        except VkApiError:
+            # кеш не сформирован из-за ошибки вызова API
+            return False
+        if users['count'] < self.offset:
+            # количество анкет в запросе меньше достигнутого смещения (список на сервере исчерпан)
+            return False
+        self.offset += STEP_SIZE
+        self.cached_users = [x for x in users['items'] if x['can_access_closed']]
+        if not self.cached_users:
+            # случай, когда в запросе все анкеты оказались недоступными
+            # повторяем обновление кеша
+            return self.renew_cache(params)
+        return True
